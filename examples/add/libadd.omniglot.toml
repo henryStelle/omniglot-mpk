@@ -1,0 +1,13 @@
+wrapper_name = "LibAdd"
+
+[functions.add]
+fntab_id = 0
+
+[functions.add_ptr]
+fntab_id = 1
+
+[functions.cannot_deref_ptr_add]
+fntab_id = 2
+
+# [functions.sumArray]
+# fntab_id = 1

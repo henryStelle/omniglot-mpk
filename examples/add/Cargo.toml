@@ -1,0 +1,15 @@
+[package]
+name = "omniglot-example-add"
+version.workspace = true
+edition = "2021"
+
+[build-dependencies]
+bindgen.workspace = true
+cc = "1.2.44"
+
+[dependencies]
+omniglot.workspace = true
+omniglot-mpk = { path = "../../omniglot-mpk" }
+
+env_logger = "0.11.3"
+log = "0.4.29"

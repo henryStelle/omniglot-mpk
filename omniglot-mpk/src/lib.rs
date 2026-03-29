@@ -357,8 +357,24 @@ fn parse_proc_self_maps() -> Vec<MemMapEntry> {
 unsafe fn get_link_map_entries(library_handle: *mut std::ffi::c_void) -> Vec<LinkMapEntry> {
     let mut lm_entries = Vec::new();
 
+    // C layout from the system <link.h> (glibc):
+    //   ElfW(Addr) l_addr;
+    //   char *l_name;
+    //   ElfW(Dyn) *l_ld;
+    //   struct link_map *l_next, *l_prev;
+    // bindgen may represent `struct link_map` as an opaque blob, which prevents
+    // accessing these fields directly.
+    #[repr(C)]
+    struct LinkMapRaw {
+        l_addr: usize,
+        l_name: *mut ::std::os::raw::c_char,
+        l_ld: *mut ::std::ffi::c_void,
+        l_next: *mut LinkMapRaw,
+        l_prev: *mut LinkMapRaw,
+    }
+
     {
-        let mut link_map_ptr: *const libc_bindings::link::link_map = std::ptr::null();
+        let mut link_map_ptr: *mut LinkMapRaw = std::ptr::null_mut();
 
         // Retrieve the start of the link map:
         assert!(
@@ -366,22 +382,22 @@ unsafe fn get_link_map_entries(library_handle: *mut std::ffi::c_void) -> Vec<Lin
                 libc_bindings::dlfcn::dlinfo(
                     library_handle,
                     libc_bindings::dlfcn::RTLD_DI_LINKMAP as ::std::os::raw::c_int,
-                    &mut link_map_ptr as *mut *const _ as *mut ::std::os::raw::c_void,
+                    &mut link_map_ptr as *mut *mut _ as *mut ::std::os::raw::c_void,
                 )
             },
             "Retreiving link map failed!",
         );
 
         // Ensure that we actually hold a valid link map entry:
-        assert!(link_map_ptr != std::ptr::null());
+        assert!(link_map_ptr != std::ptr::null_mut());
 
         // Ensure that the first element of the link map doesn't have
         // predecessor (such that we aren't skipping over any element):
         assert!(unsafe { (*link_map_ptr).l_prev } == std::ptr::null_mut());
 
         // Now, iterate through the complete list:
-        while link_map_ptr != std::ptr::null() {
-            let entry: &libc_bindings::link::link_map = unsafe { &*link_map_ptr };
+        while link_map_ptr != std::ptr::null_mut() {
+            let entry: &LinkMapRaw = unsafe { &*link_map_ptr };
             lm_entries.push(LinkMapEntry {
                 addr: entry.l_addr as *const (),
                 name: (unsafe { std::ffi::CStr::from_ptr(entry.l_name) }).into(),
@@ -1382,7 +1398,7 @@ impl<ID: OGID> OGMPKRuntime<ID> {
         // Allocate new heap pages for the library's malloc to use:
         //
         // 32GB, should be good for now :)
-        let foreign_heap_size = 128 * 1024 * 1024 * 1024;
+        let foreign_heap_size = 1024 * 1024 * 1024;
         debug!(
             "{} Allocating heap pages for foreign code, {} MB",
             log_prefix,
