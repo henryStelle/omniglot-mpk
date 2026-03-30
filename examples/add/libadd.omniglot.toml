@@ -9,5 +9,8 @@ fntab_id = 1
 [functions.cannot_deref_ptr_add]
 fntab_id = 2
 
+[functions.evil_cannot_deref_ptr_add]
+fntab_id = 3
+
 # [functions.sumArray]
 # fntab_id = 1
