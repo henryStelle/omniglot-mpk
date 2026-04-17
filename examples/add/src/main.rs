@@ -46,44 +46,6 @@ pub fn with_mpkrt_lib<ID: OGID, R>(
     f(bound_rt, alloc, access)
 }
 
-/// Moves a value into a PKey-protected memory region.
-/// This effectively "hands off" the data to the sandbox.
-unsafe fn move_to_pkey_memory<T>(value: T, pkey: i32) -> *mut T {
-    // 1. Allocate exactly one page of memory (usually 4KB)
-    let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
-
-    let ptr = libc::mmap(
-        ptr::null_mut(),
-        page_size,
-        libc::PROT_READ | libc::PROT_WRITE,
-        libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-        -1,
-        0,
-    );
-
-    if ptr == libc::MAP_FAILED {
-        panic!("Failed to allocate memory for PKey wrapping");
-    }
-
-    // 2. Tag this specific page with the Sandbox PKey (e.g., PKey 3)
-    if libc::syscall(
-        libc::SYS_pkey_mprotect,
-        ptr,
-        page_size,
-        libc::PROT_READ | libc::PROT_WRITE,
-        pkey,
-    ) != 0
-    {
-        panic!("Failed to set PKey on the allocated page");
-    }
-
-    // 3. Move the value into the new PKey-protected home
-    let typed_ptr = ptr as *mut T;
-    ptr::write(typed_ptr, value);
-
-    typed_ptr
-}
-
 fn main() {
     env_logger::init();
 
@@ -100,53 +62,6 @@ fn main() {
     omniglot::id::lifetime::OGLifetimeBranding::new(|brand| {
         with_mpkrt_lib(brand, |lib, mut alloc, mut access| {
             install_segv_handler();
-            // // 1. Create a Box on the DEFAULT heap (lives at 0x55...)
-            // let mut host_box = Box::new(5);
-
-            // // 2. Create memory on your "FOREIGN" heap (the one mapped with PKey 3)
-            // // Use the move_to_pkey_memory helper we wrote earlier
-            // unsafe {
-            //     let foreign_ptr = move_to_pkey_memory(10i32, 3);
-
-            //     log::debug!("Host Box Address: {:p}", host_box.as_ref());
-            //     log::debug!("Foreign Ptr Address: {:p}", foreign_ptr);
-
-            //     // TEST A: Pass the Host Box (Will likely fail with MAPERR)
-            //     let aa =
-            //         lib.evil_cannot_deref_ptr_add(host_box.as_mut(), 2, &mut alloc, &mut access);
-            //     dbg!(*aa.unwrap().assume_valid());
-
-            //     // TEST B: Pass the Foreign Ptr (Should succeed with your WRPKRU C-code)
-            //     let ret = lib.evil_cannot_deref_ptr_add(foreign_ptr, 2, &mut alloc, &mut access);
-
-            //     let result_ptr = ret.unwrap().assume_valid();
-            //     log::debug!("Success! Value is: {}", *result_ptr);
-            // }
-            // INSTEAD OF: let mut hmm = Box::new(5);
-            // DO THIS:
-            // unsafe {
-            //     // unsafe fn set_pkru(mask: u32) {
-            //     //     std::arch::asm!(
-            //     //         "wrpkru",
-            //     //         in("eax") mask,
-            //     //         in("edx") 0,
-            //     //         in("ecx") 0,
-            //     //     );
-            //     // }
-            //     let pkey_ptr = move_to_pkey_memory(5i32, 3);
-
-            //     // set_pkru(0x0); // This opens ALL keys (0-15) for testing.
-
-            //     // 2. Call the function
-            //     let ret = lib.cannot_deref_ptr_add(pkey_ptr, 2, &mut alloc, &mut access);
-
-            //     // 3. RESTRICT PKey 3 again (Set bits 6 and 7 to 1)
-            //     // set_pkru(0xC0);
-
-            //     let a = ret.unwrap().assume_valid();
-            //     write_str("Success! Result: ");
-            //     write_int(*a);
-            // }
 
             match test_id {
                 1 => {
