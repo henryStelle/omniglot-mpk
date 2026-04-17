@@ -183,42 +183,54 @@ fn main() {
                     log::debug!("Box address: {:p}", rust_mem.as_ref());
                     let ret =
                         lib.cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
-                    assert!(false);
+                    unreachable!("Expected a segfault, but function returned: {:?}", ret);
+                }
+                4 => {
+                    log::info!("Running test 4: evil add with Rust heap pointer");
+                    // This is the "evil" test, which tries to pass a Rust heap pointer, but the library modifies the MPK
+                    // to bypass the protections
+                    let mut rust_mem = Box::new(5);
+                    let ret = lib.evil_cannot_deref_ptr_add(
+                        rust_mem.as_mut(),
+                        2,
+                        &mut alloc,
+                        &mut access,
+                    );
+                    let ptr = ret.unwrap().validate().unwrap();
+                    unsafe {
+                        assert_eq!(*ptr, 7);
+                    }
+                }
+                5 => {
+                    log::info!("Running test 5: intentionally allow FFI to access specific Rust heap memory");
+                    // This test demonstrates how the Rust code can intentionally allow the FFI to access specific heap
+                    lib.rt()
+                        .allocate_stacked_t_mut(&mut alloc, |val_ref, mut alloc| {
+                            val_ref.write(5, &mut access);
+
+                            let ret = lib.cannot_deref_ptr_add(
+                                val_ref.as_ptr() as *mut std::os::raw::c_int,
+                                2,
+                                &mut alloc,
+                                &mut access,
+                            );
+                            let ptr = ret.unwrap().validate().unwrap();
+                            unsafe {
+                                assert_eq!(*ptr, 7);
+                            }
+                        });
                 }
                 _ => {
                     log::error!("Unknown test_id: {}", test_id);
                     std::process::exit(1);
                 }
             }
-
-            // 1. add
-
-            // 2. ptr_add
-            // unsafe {
-            //     let ret = lib
-            //         .add_ptr(1, 2, &mut alloc, &mut access)
-            //         .unwrap()
-            //         .assume_valid();
-            //     println!("box_ptr: {:#?}", *ret);
-            // }
-
-            // 3. segfaulting pass in mem
-            // let mut rust_mem = Box::new(5);
-            // log::debug!("Box address: {:p}", rust_mem.as_ref());
-            // let ret = lib.cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
-
-            // 5. evil add
-            // let mut rust_mem = Box::new(5);
-            // let ret = lib.evil_cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
-            // let ptr = ret.unwrap().validate().unwrap();
-            // unsafe {
-            //     println!("Evil add result: {}", *ptr);
-            // }
         });
     });
 }
 
 use libc::{sigaction, siginfo_t, SA_SIGINFO, SIGBUS, SIGSEGV};
+use omniglot::rt::OGRuntime;
 use std::mem::zeroed;
 use std::ptr;
 
