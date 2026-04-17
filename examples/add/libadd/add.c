@@ -61,3 +61,9 @@ int *evil_cannot_deref_ptr_add(int *a, int b) {
 
         return a;
 }
+
+// works
+int add_to_callback(int a, int (*callback)(int)) {
+        int callback_result = callback(a);
+        return a + callback_result;
+}
