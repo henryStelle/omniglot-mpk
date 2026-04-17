@@ -1,5 +1,17 @@
 # Omniglot MPK Runtime
 
+## How to run our experimental tests
+
+Most of these tests should exit with a successful, zero error code.
+
+However, some of them may exit with a non-zero code due to the nature of the tests (e.g., intentionally causing a segmentation fault).
+
+Test 3 is expected to exit with a non-zero code due to the intentional segmentation fault, while the others should exit successfully.
+
+```bash
+./experiment.sh
+```
+
 ## License
 
 Licensed under either of

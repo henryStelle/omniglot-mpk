@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::env;
 use std::ffi::CString;
 use std::os::fd::AsRawFd;
 
@@ -18,30 +19,6 @@ pub mod libadd {
 
 // These are the Omniglot wrapper types / traits generated.
 use libadd::{LibAdd, LibAddRt};
-
-// pub unsafe fn with_mock_rt_lib<'a, ID: OGID + 'a, A: omniglot::rt::mock::MockRtAllocator, R>(
-//     brand: ID,
-//     allocator: A,
-//     f: impl FnOnce(
-//         LibAddRt<ID, omniglot::rt::mock::MockRt<ID, A>, omniglot::rt::mock::MockRt<ID, A>>,
-//         AllocScope<
-//             <omniglot::rt::mock::MockRt<ID, A> as omniglot::rt::OGRuntime>::AllocTracker<'a>,
-//             ID,
-//         >,
-//         AccessScope<ID>,
-//     ) -> R,
-// ) -> R {
-//     // This is unsafe, as it instantiates a runtime that can be used to run
-//     // foreign functions without memory protection:
-//     let (rt, alloc, access) =
-//         unsafe { omniglot::rt::mock::MockRt::new(false, false, allocator, brand) };
-
-//     // Create a "bound" runtime, which implements the LibOAdd API:
-//     let bound_rt = LibAddRt::new(rt).unwrap();
-
-//     // Run the provided closure:
-//     f(bound_rt, alloc, access)
-// }
 
 pub fn with_mpkrt_lib<ID: OGID, R>(
     brand: ID,
@@ -110,6 +87,16 @@ unsafe fn move_to_pkey_memory<T>(value: T, pkey: i32) -> *mut T {
 fn main() {
     env_logger::init();
 
+    // try and cast the last argument to an integer, which we'll use as the test id
+    // if that fails, error and exit
+    let test_id = match env::args().last().map(|s| s.parse::<u8>()) {
+        Some(Ok(id)) => id,
+        _ => {
+            log::error!("Usage: {} <test_id>", env::args().next().unwrap());
+            std::process::exit(1);
+        }
+    };
+
     omniglot::id::lifetime::OGLifetimeBranding::new(|brand| {
         with_mpkrt_lib(brand, |lib, mut alloc, mut access| {
             install_segv_handler();
@@ -161,13 +148,50 @@ fn main() {
             //     write_int(*a);
             // }
 
+            match test_id {
+                1 => {
+                    log::info!("Running test 1: simple add");
+                    // This is a simple test to verify that basic computation and pass-by-value works correctly
+
+                    let ret = lib
+                        .add(1, 2, &mut alloc, &mut access)
+                        .unwrap()
+                        .validate()
+                        .unwrap();
+                    assert_eq!(ret, 3);
+                }
+                2 => {
+                    log::info!("Running test 2: add pointer result");
+                    // This tests the add_ptr function, which returns a pointer
+                    // ensuring that rust can read from the FFI memory correctly
+
+                    // Note: this is known to leak memory, since the library allocates but never frees
+                    // as rust can't free FFI-allocated memor
+                    unsafe {
+                        let ret = lib
+                            .add_ptr(1, 2, &mut alloc, &mut access)
+                            .unwrap()
+                            .assume_valid();
+                        assert_eq!(*ret, 3);
+                    }
+                }
+                3 => {
+                    // 3. segfaulting pass in mem
+                    log::info!("Running test 3: segfaulting pass in mem");
+                    // The FFI should not be able to access the rust heap, so this should cause a segfault
+                    let mut rust_mem = Box::new(5);
+                    log::debug!("Box address: {:p}", rust_mem.as_ref());
+                    let ret =
+                        lib.cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
+                    assert!(false);
+                }
+                _ => {
+                    log::error!("Unknown test_id: {}", test_id);
+                    std::process::exit(1);
+                }
+            }
+
             // 1. add
-            // let ret = lib
-            //     .add(1, 2, &mut alloc, &mut access)
-            //     .unwrap()
-            //     .validate()
-            //     .unwrap();
-            // dbg!(ret);
 
             // 2. ptr_add
             // unsafe {
@@ -175,7 +199,7 @@ fn main() {
             //         .add_ptr(1, 2, &mut alloc, &mut access)
             //         .unwrap()
             //         .assume_valid();
-            //     println!("box_ptr: {:#?}", Box::from_raw(ret));
+            //     println!("box_ptr: {:#?}", *ret);
             // }
 
             // 3. segfaulting pass in mem
@@ -184,12 +208,12 @@ fn main() {
             // let ret = lib.cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
 
             // 5. evil add
-            let mut rust_mem = Box::new(5);
-            let ret = lib.evil_cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
-            let ptr = ret.unwrap().validate().unwrap();
-            unsafe {
-                println!("Evil add result: {}", *ptr);
-            }
+            // let mut rust_mem = Box::new(5);
+            // let ret = lib.evil_cannot_deref_ptr_add(rust_mem.as_mut(), 2, &mut alloc, &mut access);
+            // let ptr = ret.unwrap().validate().unwrap();
+            // unsafe {
+            //     println!("Evil add result: {}", *ptr);
+            // }
         });
     });
 }
@@ -282,15 +306,18 @@ pub fn install_segv_handler() {
             0,
         );
 
-        if stack_ptr != libc::MAP_FAILED {
-            let ss = libc::stack_t {
-                ss_sp: stack_ptr,
-                ss_flags: 0,
-                ss_size: stack_size,
-            };
-            // register the alternate stack
-            libc::sigaltstack(&ss, ptr::null_mut());
+        if stack_ptr == libc::MAP_FAILED {
+            log::error!("Failed to allocate memory for signal stack");
+            libc::exit(1);
         }
+
+        let ss = libc::stack_t {
+            ss_sp: stack_ptr,
+            ss_flags: 0,
+            ss_size: stack_size,
+        };
+        // register the alternate stack
+        libc::sigaltstack(&ss, ptr::null_mut());
 
         // 2. Install the signal handler
         let mut sa: sigaction = zeroed();
@@ -308,5 +335,7 @@ pub fn install_segv_handler() {
         if sigaction(SIGBUS, &sa, ptr::null_mut()) != 0 {
             libc::exit(1);
         }
+
+        log::info!("Custom SIGSEGV/SIGBUS handler installed with alternate stack");
     }
 }
