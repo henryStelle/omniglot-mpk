@@ -1398,7 +1398,7 @@ impl<ID: OGID> OGMPKRuntime<ID> {
         // Allocate new heap pages for the library's malloc to use:
         //
         // 32GB, should be good for now :)
-        let foreign_heap_size = 128 * 1024 * 1024 * 1024;
+        let foreign_heap_size = 1024 * 1024 * 1024;
         debug!(
             "{} Allocating heap pages for foreign code, {} MB",
             log_prefix,

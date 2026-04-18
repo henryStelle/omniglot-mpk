@@ -1,0 +1,16 @@
+wrapper_name = "LibAdd"
+
+[functions.add]
+fntab_id = 0
+
+[functions.add_ptr]
+fntab_id = 1
+
+[functions.cannot_deref_ptr_add]
+fntab_id = 2
+
+[functions.evil_cannot_deref_ptr_add]
+fntab_id = 3
+
+[functions.add_to_callback]
+fntab_id = 4

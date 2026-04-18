@@ -6,6 +6,7 @@ members = [
     "examples/libpng",
     "examples/libsodium",
     "examples/ubench",
+    "examples/add"
 ]
 
 [workspace.package]
